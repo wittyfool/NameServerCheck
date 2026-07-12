@@ -30,7 +30,7 @@ class NameServerCheckTests(unittest.TestCase):
     def tearDown(self):
         self.tempdir.cleanup()
 
-    def args(self, types=None, progress=False):
+    def args(self, types=None, progress=None):
         return SimpleNamespace(
             zone_file=self.zone_path,
             nameserver="192.0.2.53",
@@ -97,9 +97,14 @@ class NameServerCheckTests(unittest.TestCase):
         mock_query.side_effect = lambda server, record, timeout: record.expected
         error = io.StringIO()
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(error):
-            result = nameserver_check.run(self.args(types=["A"], progress=True))
+            result = nameserver_check.run(self.args(types=["A"], progress=10))
         self.assertEqual(0, result)
         self.assertEqual("進捗: 2/2 件完了", error.getvalue().strip())
+
+    def test_zero_progress_interval_is_rejected(self):
+        args = self.args(types=["A"], progress=0)
+        with self.assertRaisesRegex(ValueError, "--progress"):
+            nameserver_check.run(args)
 
 
 if __name__ == "__main__":

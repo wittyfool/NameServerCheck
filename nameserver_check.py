@@ -41,8 +41,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--progress",
-        action="store_true",
-        help="進捗を20件ごと（および完了時）に標準エラーへ表示",
+        nargs="?",
+        const=20,
+        type=int,
+        metavar="N",
+        help="進捗をN件ごと（および完了時）に表示。N省略時は20件",
     )
     parser.add_argument("--timeout", type=float, default=5.0, help="問い合わせのタイムアウト秒（既定: 5）")
     parser.add_argument(
@@ -112,6 +115,8 @@ def run(args: argparse.Namespace) -> int:
         raise ValueError("--timeout は 0 より大きい値を指定してください")
     if args.interval < 0:
         raise ValueError("--interval は 0 以上の値を指定してください")
+    if args.progress is not None and args.progress <= 0:
+        raise ValueError("--progress の件数は 1 以上を指定してください")
     records = load_recordsets(args.zone_file, args.origin, args.types)
     if not records:
         print("比較対象のレコードがありません。", file=sys.stderr)
@@ -129,7 +134,7 @@ def run(args: argparse.Namespace) -> int:
         except (dns.exception.DNSException, OSError) as exc:
             differences += 1
             print(f"ERROR {label}: {exc}")
-            if args.progress and (index % 20 == 0 or index == len(records)):
+            if args.progress and (index % args.progress == 0 or index == len(records)):
                 print(
                     f"進捗: {index}/{len(records)} 件完了",
                     file=sys.stderr,
@@ -148,7 +153,7 @@ def run(args: argparse.Namespace) -> int:
                 print(f"  - {text(expected_by_key[item_key], record.name)}")
             for item_key in sorted(extra):
                 print(f"  + {text(actual_by_key[item_key], record.name)}")
-        if args.progress and (index % 20 == 0 or index == len(records)):
+        if args.progress and (index % args.progress == 0 or index == len(records)):
             print(
                 f"進捗: {index}/{len(records)} 件完了",
                 file=sys.stderr,

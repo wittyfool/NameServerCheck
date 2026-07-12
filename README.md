@@ -20,6 +20,7 @@ python nameserver_check.py <zone-file> <nameserver> [options]
 
 ```powershell
 python nameserver_check.py example.com.zone 192.0.2.53 --progress
+python nameserver_check.py example.com.zone 192.0.2.53 --progress 10
 python nameserver_check.py example.com.zone ns1.example.com --type A --type AAAA
 python nameserver_check.py example.com.zone 192.0.2.53 --type A,MX --progress
 python nameserver_check.py example.com.zone 192.0.2.53 --type A --interval 1
@@ -27,7 +28,7 @@ python nameserver_check.py example.com.zone 192.0.2.53 --type A --interval 1
 
 主なオプション:
 
-- `--progress`: 20件完了ごと、および全件完了時に進捗を標準エラーに表示
+- `--progress [N]`: N件完了ごと、および全件完了時に進捗を表示（N省略時は20件）
 - `--type TYPE`: 比較対象タイプを指定。複数回またはカンマ区切りで指定可能
 - `--timeout SEC`: DNS 問い合わせのタイムアウト秒（既定値 5）
 - `--interval SEC`: 問い合わせ間隔の秒数（既定値 0、小数指定可）
