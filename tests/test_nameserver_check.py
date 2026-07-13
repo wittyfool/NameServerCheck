@@ -55,12 +55,13 @@ class NameServerCheckTests(unittest.TestCase):
     def test_resolve_servers_uses_requested_address_family(self, mock_getaddrinfo):
         mock_getaddrinfo.return_value = [
             (socket.AF_INET6, socket.SOCK_DGRAM, 17, "", ("2001:db8::53", 53, 0, 0)),
+            (socket.AF_INET6, socket.SOCK_DGRAM, 17, "", ("2001:db8::54", 53, 0, 0)),
             (socket.AF_INET6, socket.SOCK_DGRAM, 17, "", ("2001:db8::53", 53, 0, 0)),
         ]
 
         result = nameserver_check.resolve_servers("ns1.example.test", "ipv6")
 
-        self.assertEqual(["2001:db8::53"], result)
+        self.assertEqual(["2001:db8::53", "2001:db8::54"], result)
         mock_getaddrinfo.assert_called_once_with(
             "ns1.example.test",
             53,
@@ -87,16 +88,16 @@ class NameServerCheckTests(unittest.TestCase):
 
         mock_udp.side_effect = side_effect
 
-        actual, server = nameserver_check.query(
+        result = nameserver_check.query(
             ["2001:db8::53", "192.0.2.53"], record, 1.0
         )
 
-        self.assertEqual("192.0.2.53", server)
-        self.assertEqual("192.0.2.10", actual[0].address)
+        self.assertEqual("192.0.2.53", result.server)
+        self.assertEqual("192.0.2.10", result.answer[0].address)
 
     @patch("nameserver_check.query")
     def test_matching_records_return_zero(self, mock_query):
-        mock_query.side_effect = lambda servers, record, timeout: (record.expected, servers[0])
+        mock_query.side_effect = lambda servers, record, timeout: nameserver_check.QueryResult(record.expected, servers[0])
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             result = nameserver_check.run(self.args(types=["A"]))
@@ -107,13 +108,13 @@ class NameServerCheckTests(unittest.TestCase):
     def test_difference_returns_one_and_shows_both_sides(self, mock_query):
         def answer(servers, record, timeout):
             if record.name.to_text() == "www.example.test.":
-                return (
+                return nameserver_check.QueryResult(
                     dns.rrset.from_text(
                         record.name, 300, "IN", "A", "192.0.2.99"
                     ),
                     servers[0],
                 )
-            return record.expected, servers[0]
+            return nameserver_check.QueryResult(record.expected, servers[0])
 
         mock_query.side_effect = answer
         output = io.StringIO()
@@ -126,7 +127,7 @@ class NameServerCheckTests(unittest.TestCase):
     @patch("nameserver_check.time.sleep")
     @patch("nameserver_check.query")
     def test_interval_waits_between_queries(self, mock_query, mock_sleep):
-        mock_query.side_effect = lambda servers, record, timeout: (record.expected, servers[0])
+        mock_query.side_effect = lambda servers, record, timeout: nameserver_check.QueryResult(record.expected, servers[0])
         args = self.args(types=["A"])
         args.interval = 1.0
         with contextlib.redirect_stdout(io.StringIO()):
@@ -142,7 +143,7 @@ class NameServerCheckTests(unittest.TestCase):
 
     @patch("nameserver_check.query")
     def test_progress_is_shown_at_completion(self, mock_query):
-        mock_query.side_effect = lambda servers, record, timeout: (record.expected, servers[0])
+        mock_query.side_effect = lambda servers, record, timeout: nameserver_check.QueryResult(record.expected, servers[0])
         error = io.StringIO()
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(error):
             result = nameserver_check.run(self.args(types=["A"], progress=10))

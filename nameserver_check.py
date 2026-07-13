@@ -26,6 +26,12 @@ class RecordSet:
     expected: object
 
 
+@dataclass(frozen=True)
+class QueryResult:
+    answer: object | None
+    server: str
+
+
 class QueryError(Exception):
     def __init__(self, attempts: list[tuple[str, str]]):
         self.attempts = attempts
@@ -132,7 +138,7 @@ def load_recordsets(path: Path, origin: str | None, selected: list[str] | None) 
     return results
 
 
-def query(servers: list[str], record: RecordSet, timeout: float):
+def query(servers: list[str], record: RecordSet, timeout: float) -> QueryResult:
     request = dns.message.make_query(record.name, record.rdtype)
     attempts: list[tuple[str, str]] = []
     for server in servers:
@@ -141,13 +147,13 @@ def query(servers: list[str], record: RecordSet, timeout: float):
             if response.flags & dns.flags.TC:
                 response = dns.query.tcp(request, server, timeout=timeout)
         except (dns.exception.DNSException, OSError) as exc:
-            attempts.append((server, str(exc)))
+            attempts.append((server, describe_exception(exc)))
             continue
 
         for rrset in response.answer:
             if rrset.name == record.name and rrset.rdtype == record.rdtype:
-                return rrset, server
-        return None, server
+                return QueryResult(rrset, server)
+        return QueryResult(None, server)
 
     raise QueryError(attempts)
 
@@ -158,6 +164,12 @@ def key(rdata) -> bytes:
 
 def text(rdata, origin) -> str:
     return rdata.to_text(origin=origin, relativize=False)
+
+
+def describe_exception(exc: Exception) -> str:
+    if isinstance(exc, OSError) and exc.strerror:
+        return exc.strerror
+    return str(exc)
 
 
 def run(args: argparse.Namespace) -> int:
@@ -180,7 +192,7 @@ def run(args: argparse.Namespace) -> int:
         type_text = dns.rdatatype.to_text(record.rdtype)
         label = f"{record.name.to_text()} {type_text}"
         try:
-            actual, server = query(servers, record, args.timeout)
+            result = query(servers, record, args.timeout)
         except QueryError as exc:
             differences += 1
             print(f"ERROR {label}: {exc}")
@@ -193,12 +205,12 @@ def run(args: argparse.Namespace) -> int:
             continue
 
         expected_by_key = {key(item): item for item in record.expected}
-        actual_by_key = {key(item): item for item in actual} if actual else {}
+        actual_by_key = {key(item): item for item in result.answer} if result.answer else {}
         missing = expected_by_key.keys() - actual_by_key.keys()
         extra = actual_by_key.keys() - expected_by_key.keys()
         if missing or extra:
             differences += 1
-            print(f"DIFF  {label} (server {server})")
+            print(f"DIFF  {label} (server {result.server})")
             for item_key in sorted(missing):
                 print(f"  - {text(expected_by_key[item_key], record.name)}")
             for item_key in sorted(extra):
