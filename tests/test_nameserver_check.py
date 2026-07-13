@@ -57,6 +57,7 @@ class NameServerCheckTests(unittest.TestCase):
             (socket.AF_INET6, socket.SOCK_DGRAM, 17, "", ("2001:db8::53", 53, 0, 0)),
             (socket.AF_INET6, socket.SOCK_DGRAM, 17, "", ("2001:db8::54", 53, 0, 0)),
             (socket.AF_INET6, socket.SOCK_DGRAM, 17, "", ("2001:db8::53", 53, 0, 0)),
+            (socket.AF_INET6, socket.SOCK_DGRAM, 17, "", ("2001:db8::54", 53, 0, 0)),
         ]
 
         result = nameserver_check.resolve_servers("ns1.example.test", "ipv6")

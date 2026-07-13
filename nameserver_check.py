@@ -18,6 +18,8 @@ import dns.query
 import dns.rdatatype
 import dns.zone
 
+MAX_SERVER_CANDIDATES = 16
+
 
 @dataclass(frozen=True)
 class RecordSet:
@@ -108,12 +110,16 @@ def resolve_servers(server: str, family: str) -> list[str]:
                 type=socket.SOCK_DGRAM,
             )
         except socket.gaierror as exc:
-            raise ValueError(f"ネームサーバーを名前解決できません: {server}") from exc
+            raise ValueError(
+                f"ネームサーバーを名前解決できません: {server} ({describe_exception(exc)})"
+            ) from exc
         addresses: list[str] = []
         for info in infos:
             candidate = info[4][0]
             if candidate not in addresses:
                 addresses.append(candidate)
+            if len(addresses) >= MAX_SERVER_CANDIDATES:
+                break
         if not addresses:
             raise ValueError(f"ネームサーバーを名前解決できません: {server}")
         return addresses
