@@ -18,6 +18,10 @@ import dns.query
 import dns.rdatatype
 import dns.zone
 
+# getaddrinfo() normally yields only a few addresses; cap it defensively so a
+# misconfigured resolver cannot grow the fallback list without bound.
+MAX_SERVER_CANDIDATES = 16
+
 
 @dataclass(frozen=True)
 class RecordSet:
@@ -26,12 +30,36 @@ class RecordSet:
     expected: object
 
 
+@dataclass(frozen=True)
+class QueryResult:
+    answer: object | None
+    server: str
+
+
+class QueryError(Exception):
+    """Raised when every nameserver candidate fails.
+
+    attempts contains (server, error_message) tuples in the order tried.
+    """
+
+    def __init__(self, attempts: list[tuple[str, str]]):
+        self.attempts = attempts
+        message = "; ".join(f"{server}: {error}" for server, error in attempts)
+        super().__init__(message)
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="ゾーンファイルの値と指定ネームサーバーの応答を比較します。"
     )
     parser.add_argument("zone_file", type=Path, help="比較するゾーンファイル")
     parser.add_argument("nameserver", help="問い合わせ先ネームサーバー（IPアドレスまたはホスト名）")
+    parser.add_argument(
+        "--nameserver-family",
+        choices=("auto", "ipv4", "ipv6"),
+        default="auto",
+        help="問い合わせ先ネームサーバーのアドレス種別（既定: auto）",
+    )
     parser.add_argument(
         "--type",
         dest="types",
@@ -58,14 +86,62 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def resolve_server(server: str) -> str:
+def socket_family(name: str) -> int:
+    """Map CLI/programmatic nameserver family values to socket constants."""
+
+    families = {
+        "auto": socket.AF_UNSPEC,
+        "ipv4": socket.AF_INET,
+        "ipv6": socket.AF_INET6,
+    }
     try:
-        return str(ipaddress.ip_address(server))
+        return families[name]
+    except KeyError as exc:
+        raise ValueError(f"不正なネームサーバー種別です: {name}") from exc
+
+
+def family_matches(requested: str, actual: str) -> bool:
+    return requested == "auto" or requested == actual
+
+
+def resolve_servers(server: str, family: str) -> list[str]:
+    """Resolve a nameserver hostname or validate an IP literal.
+
+    Returns unique addresses in resolver order and validates that the requested
+    family matches any IP literal supplied by the caller.
+    """
+
+    try:
+        address = ipaddress.ip_address(server)
     except ValueError:
-        infos = socket.getaddrinfo(server, 53, type=socket.SOCK_DGRAM)
-        if not infos:
-            raise RuntimeError(f"ネームサーバーを名前解決できません: {server}")
-        return infos[0][4][0]
+        try:
+            infos = socket.getaddrinfo(
+                server,
+                53,
+                family=socket_family(family),
+                type=socket.SOCK_DGRAM,
+            )
+        except socket.gaierror as exc:
+            raise ValueError(
+                f"ネームサーバーを名前解決できません: {server} ({describe_exception(exc)})"
+            ) from exc
+        addresses: list[str] = []
+        for info in infos:
+            candidate = info[4][0]
+            if candidate not in addresses:
+                addresses.append(candidate)
+            if len(addresses) >= MAX_SERVER_CANDIDATES:
+                break
+        if not addresses:
+            raise ValueError(f"ネームサーバーを名前解決できません: {server}")
+        return addresses
+
+    version = f"ipv{address.version}"
+    if not family_matches(family, version):
+        raise ValueError(
+            f"指定したネームサーバー {server} は {version} ですが、{family} が要求されました"
+        )
+    return [str(address)]
 
 
 def load_recordsets(path: Path, origin: str | None, selected: list[str] | None) -> list[RecordSet]:
@@ -91,15 +167,30 @@ def load_recordsets(path: Path, origin: str | None, selected: list[str] | None) 
     return results
 
 
-def query(server: str, record: RecordSet, timeout: float):
+def query(servers: list[str], record: RecordSet, timeout: float) -> QueryResult:
+    """Query candidate nameservers until one returns a DNS response.
+
+    Transport failures fall back to later candidates, but a successful DNS
+    response ends the fallback chain even when the expected RRset is absent.
+    """
+
     request = dns.message.make_query(record.name, record.rdtype)
-    response = dns.query.udp(request, server, timeout=timeout)
-    if response.flags & dns.flags.TC:
-        response = dns.query.tcp(request, server, timeout=timeout)
-    for rrset in response.answer:
-        if rrset.name == record.name and rrset.rdtype == record.rdtype:
-            return rrset
-    return None
+    attempts: list[tuple[str, str]] = []
+    for server in servers:
+        try:
+            response = dns.query.udp(request, server, timeout=timeout)
+            if response.flags & dns.flags.TC:
+                response = dns.query.tcp(request, server, timeout=timeout)
+        except (dns.exception.DNSException, OSError) as exc:
+            attempts.append((server, describe_exception(exc)))
+            continue
+
+        for rrset in response.answer:
+            if rrset.name == record.name and rrset.rdtype == record.rdtype:
+                return QueryResult(rrset, server)
+        return QueryResult(None, server)
+
+    raise QueryError(attempts)
 
 
 def key(rdata) -> bytes:
@@ -108,6 +199,14 @@ def key(rdata) -> bytes:
 
 def text(rdata, origin) -> str:
     return rdata.to_text(origin=origin, relativize=False)
+
+
+def describe_exception(exc: Exception) -> str:
+    """Return a human-readable error message for DNS operations."""
+
+    if isinstance(exc, OSError) and exc.strerror:
+        return exc.strerror
+    return str(exc)
 
 
 def run(args: argparse.Namespace) -> int:
@@ -121,7 +220,7 @@ def run(args: argparse.Namespace) -> int:
     if not records:
         print("比較対象のレコードがありません。", file=sys.stderr)
         return 0
-    server = resolve_server(args.nameserver)
+    servers = resolve_servers(args.nameserver, args.nameserver_family)
     differences = 0
 
     for index, record in enumerate(records, 1):
@@ -130,8 +229,8 @@ def run(args: argparse.Namespace) -> int:
         type_text = dns.rdatatype.to_text(record.rdtype)
         label = f"{record.name.to_text()} {type_text}"
         try:
-            actual = query(server, record, args.timeout)
-        except (dns.exception.DNSException, OSError) as exc:
+            result = query(servers, record, args.timeout)
+        except QueryError as exc:
             differences += 1
             print(f"ERROR {label}: {exc}")
             if args.progress and (index % args.progress == 0 or index == len(records)):
@@ -143,12 +242,12 @@ def run(args: argparse.Namespace) -> int:
             continue
 
         expected_by_key = {key(item): item for item in record.expected}
-        actual_by_key = {key(item): item for item in actual} if actual else {}
+        actual_by_key = {key(item): item for item in result.answer} if result.answer else {}
         missing = expected_by_key.keys() - actual_by_key.keys()
         extra = actual_by_key.keys() - expected_by_key.keys()
         if missing or extra:
             differences += 1
-            print(f"DIFF  {label}")
+            print(f"DIFF  {label} (server {result.server})")
             for item_key in sorted(missing):
                 print(f"  - {text(expected_by_key[item_key], record.name)}")
             for item_key in sorted(extra):
