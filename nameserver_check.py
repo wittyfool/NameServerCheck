@@ -18,7 +18,8 @@ import dns.query
 import dns.rdatatype
 import dns.zone
 
-# getaddrinfo() should only return a small set of candidates; cap it defensively.
+# getaddrinfo() normally yields only a few addresses; cap it defensively so a
+# misconfigured resolver cannot grow the fallback list without bound.
 MAX_SERVER_CANDIDATES = 16
 
 
@@ -86,11 +87,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def socket_family(name: str) -> int:
-    return {
+    families = {
         "auto": socket.AF_UNSPEC,
         "ipv4": socket.AF_INET,
         "ipv6": socket.AF_INET6,
-    }[name]
+    }
+    try:
+        return families[name]
+    except KeyError as exc:
+        raise ValueError(f"不正なネームサーバー種別です: {name}") from exc
 
 
 def family_matches(requested: str, actual: str) -> bool:

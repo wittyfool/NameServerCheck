@@ -44,8 +44,7 @@ class NameServerCheckTests(unittest.TestCase):
         )
 
     @staticmethod
-    def matching_query_result(servers, record, timeout):
-        del timeout
+    def matching_query_result(servers, record, _timeout):
         assert servers
         return nameserver_check.QueryResult(record.expected, servers[0])
 
