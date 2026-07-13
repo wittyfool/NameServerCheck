@@ -87,6 +87,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def socket_family(name: str) -> int:
+    """Map CLI/programmatic nameserver family values to socket constants."""
+
     families = {
         "auto": socket.AF_UNSPEC,
         "ipv4": socket.AF_INET,
@@ -200,7 +202,7 @@ def text(rdata, origin) -> str:
 
 
 def describe_exception(exc: Exception) -> str:
-    """Return a human-readable error message for query failures."""
+    """Return a human-readable error message for DNS operations."""
 
     if isinstance(exc, OSError) and exc.strerror:
         return exc.strerror
