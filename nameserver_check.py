@@ -33,6 +33,11 @@ class QueryResult:
 
 
 class QueryError(Exception):
+    """Raised when every nameserver candidate fails.
+
+    attempts contains (server, error_message) tuples in the order tried.
+    """
+
     def __init__(self, attempts: list[tuple[str, str]]):
         self.attempts = attempts
         message = "; ".join(f"{server}: {error}" for server, error in attempts)
@@ -86,6 +91,12 @@ def socket_family(name: str) -> int:
 
 
 def resolve_servers(server: str, family: str) -> list[str]:
+    """Resolve a nameserver hostname or validate an IP literal.
+
+    Returns unique addresses in resolver order and validates that the requested
+    family matches any IP literal supplied by the caller.
+    """
+
     try:
         address = ipaddress.ip_address(server)
     except ValueError:
@@ -139,6 +150,8 @@ def load_recordsets(path: Path, origin: str | None, selected: list[str] | None) 
 
 
 def query(servers: list[str], record: RecordSet, timeout: float) -> QueryResult:
+    """Query each candidate nameserver until one responds or all attempts fail."""
+
     request = dns.message.make_query(record.name, record.rdtype)
     attempts: list[tuple[str, str]] = []
     for server in servers:
@@ -167,6 +180,8 @@ def text(rdata, origin) -> str:
 
 
 def describe_exception(exc: Exception) -> str:
+    """Return a human-readable error message for query failures."""
+
     if isinstance(exc, OSError) and exc.strerror:
         return exc.strerror
     return str(exc)
