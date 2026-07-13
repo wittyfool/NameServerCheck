@@ -53,6 +53,7 @@ class NameServerCheckTests(unittest.TestCase):
 
     @patch("nameserver_check.socket.getaddrinfo")
     def test_resolve_servers_uses_requested_address_family(self, mock_getaddrinfo):
+        # Duplicate results simulate resolver output and verify order-preserving deduplication.
         mock_getaddrinfo.return_value = [
             (socket.AF_INET6, socket.SOCK_DGRAM, 17, "", ("2001:db8::53", 53, 0, 0)),
             (socket.AF_INET6, socket.SOCK_DGRAM, 17, "", ("2001:db8::54", 53, 0, 0)),

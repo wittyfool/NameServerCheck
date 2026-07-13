@@ -127,7 +127,7 @@ def resolve_servers(server: str, family: str) -> list[str]:
     version = f"ipv{address.version}"
     if family != "auto" and family != version:
         raise ValueError(
-            f"指定したネームサーバー {server} は {family} ではありません"
+            f"指定したネームサーバー {server} は {version} ですが、{family} が要求されました"
         )
     return [str(address)]
 
@@ -156,7 +156,11 @@ def load_recordsets(path: Path, origin: str | None, selected: list[str] | None) 
 
 
 def query(servers: list[str], record: RecordSet, timeout: float) -> QueryResult:
-    """Query each candidate nameserver until one responds or all attempts fail."""
+    """Query candidate nameservers until one returns a DNS response.
+
+    Transport failures fall back to later candidates, but a successful DNS
+    response ends the fallback chain even when the expected RRset is absent.
+    """
 
     request = dns.message.make_query(record.name, record.rdtype)
     attempts: list[tuple[str, str]] = []
