@@ -43,6 +43,12 @@ class NameServerCheckTests(unittest.TestCase):
             origin=None,
         )
 
+    @staticmethod
+    def matching_query_result(servers, record, timeout):
+        del timeout
+        assert servers
+        return nameserver_check.QueryResult(record.expected, servers[0])
+
     def test_type_filter_accepts_repeated_and_comma_separated_values(self):
         records = nameserver_check.load_recordsets(
             self.zone_path, None, ["A,MX"]
@@ -99,7 +105,7 @@ class NameServerCheckTests(unittest.TestCase):
 
     @patch("nameserver_check.query")
     def test_matching_records_return_zero(self, mock_query):
-        mock_query.side_effect = lambda servers, record, timeout: nameserver_check.QueryResult(record.expected, servers[0])
+        mock_query.side_effect = self.matching_query_result
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             result = nameserver_check.run(self.args(types=["A"]))
@@ -129,7 +135,7 @@ class NameServerCheckTests(unittest.TestCase):
     @patch("nameserver_check.time.sleep")
     @patch("nameserver_check.query")
     def test_interval_waits_between_queries(self, mock_query, mock_sleep):
-        mock_query.side_effect = lambda servers, record, timeout: nameserver_check.QueryResult(record.expected, servers[0])
+        mock_query.side_effect = self.matching_query_result
         args = self.args(types=["A"])
         args.interval = 1.0
         with contextlib.redirect_stdout(io.StringIO()):
@@ -145,7 +151,7 @@ class NameServerCheckTests(unittest.TestCase):
 
     @patch("nameserver_check.query")
     def test_progress_is_shown_at_completion(self, mock_query):
-        mock_query.side_effect = lambda servers, record, timeout: nameserver_check.QueryResult(record.expected, servers[0])
+        mock_query.side_effect = self.matching_query_result
         error = io.StringIO()
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(error):
             result = nameserver_check.run(self.args(types=["A"], progress=10))

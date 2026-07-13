@@ -18,6 +18,7 @@ import dns.query
 import dns.rdatatype
 import dns.zone
 
+# getaddrinfo() should only return a small set of candidates; cap it defensively.
 MAX_SERVER_CANDIDATES = 16
 
 
@@ -92,6 +93,10 @@ def socket_family(name: str) -> int:
     }[name]
 
 
+def family_matches(requested: str, actual: str) -> bool:
+    return requested == "auto" or requested == actual
+
+
 def resolve_servers(server: str, family: str) -> list[str]:
     """Resolve a nameserver hostname or validate an IP literal.
 
@@ -125,7 +130,7 @@ def resolve_servers(server: str, family: str) -> list[str]:
         return addresses
 
     version = f"ipv{address.version}"
-    if family != "auto" and family != version:
+    if not family_matches(family, version):
         raise ValueError(
             f"指定したネームサーバー {server} は {version} ですが、{family} が要求されました"
         )
